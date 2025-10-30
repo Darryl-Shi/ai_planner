@@ -5,6 +5,7 @@ import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import { google } from 'googleapis';
 import OpenAI from 'openai';
+import crypto from 'crypto';
 import pool, { findOrCreateUser, getUserSettings, updateUserSettings, deleteUserApiKey } from './db/connection.js';
 import { encryptApiKey, decryptApiKey, validateEncryptionKey } from './utils/encryption.js';
 
@@ -28,6 +29,8 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+// Disable ETag to avoid 304 on dynamic JSON endpoints like /api/auth/google
+app.set('etag', false);
 
 // Setup PostgreSQL session store
 const PgSession = connectPgSimple(session);
@@ -71,18 +74,35 @@ const SCOPES = [
 
 // Initiate Google OAuth
 app.get('/api/auth/google', (req, res) => {
+  // Create CSRF state and store in session
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.oauthState = state;
+
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
-    include_granted_scopes: true
+    include_granted_scopes: true,
+    state
   });
+
+  // Prevent caching of this dynamic response
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
   res.json({ authUrl });
 });
 
 // OAuth callback
 app.get('/api/auth/callback', async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
+
+  // Verify CSRF state if present
+  if (req.session.oauthState && state !== req.session.oauthState) {
+    console.error('OAuth callback state mismatch');
+    return res.status(400).json({ error: 'Invalid state parameter' });
+  }
+  // Clear state
+  req.session.oauthState = undefined;
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
@@ -90,6 +110,12 @@ app.get('/api/auth/callback', async (req, res) => {
       console.error('OAuth callback: getToken returned no tokens');
       return res.status(500).json({ error: 'Authentication failed' });
     }
+    console.log('OAuth tokens received', {
+      hasAccessToken: !!tokens.access_token,
+      hasIdToken: !!tokens.id_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      scope: tokens.scope
+    });
     oauth2Client.setCredentials(tokens);
 
     // Try to obtain profile from ID token (preferred)
