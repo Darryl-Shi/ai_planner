@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai-planner-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ai_planner
+      POSTGRES_USER: ai_planner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_planner -d ai_planner"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai-planner-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-planner-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      FRONTEND_URL: http://localhost:3000
+
+      # Database
+      DATABASE_URL: postgresql://ai_planner:${POSTGRES_PASSWORD:-changeme}@postgres:5432/ai_planner
+
+      # Security
+      SESSION_SECRET: ${SESSION_SECRET:-your-secret-key-change-this}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+
+      # Google OAuth
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3001/api/auth/callback}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Development: Mount source code for hot reload
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - ai-planner-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/auth/status', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE=http://localhost:3001
+    container_name: ai-planner-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      VITE_API_BASE: http://localhost:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      # Development: Mount source code for hot reload
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - ai-planner-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  ai-planner-network:
+    driver: bridge

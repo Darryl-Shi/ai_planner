@@ -1,0 +1,94 @@
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.today-button {
+  padding: 8px 16px;
+  background-color: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.today-button:hover {
+  background-color: var(--hover-bg);
+  border-color: var(--accent);
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.nav-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.nav-button {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-button:hover {
+  background-color: var(--hover-bg);
+  border-color: var(--accent);
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.date-label {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.view-buttons {
+  display: flex;
+  gap: 4px;
+  background-color: var(--bg-tertiary);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.view-button {
+  padding: 8px 16px;
+  background-color: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.view-button:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+}
+
+.view-button.active {
+  background-color: var(--accent);
+  color: white;
+}
