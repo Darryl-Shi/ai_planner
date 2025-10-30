@@ -549,13 +549,25 @@ You can:
 4. Edit or delete existing events using their IDs
 5. Provide scheduling recommendations based on their calendar
 
+IMPORTANT DATE HANDLING RULES:
+- When the user says relative dates like "this Friday", "next Tuesday", "tomorrow", "this weekend", etc., you MUST confidently interpret the date without asking for confirmation
+- Use the current date/time provided below to calculate the exact date for relative references
+- "this Friday" = the upcoming Friday from today (if today is Friday, it means today)
+- "next Friday" = the Friday of next week
+- "this weekend" = the upcoming Saturday/Sunday
+- "tomorrow" = the next day from current date
+- Only ask for clarification if the request is genuinely ambiguous (e.g., "sometime next week" without specifying a day) or if time/duration is not specified
+
 When creating, updating, or deleting events, use the provided tools. Always use the actual event IDs shown in [ID: ...] brackets.
 
-IMPORTANT: When creating or updating events, you MUST use the user's timezone: ${userTimeZone}
-All times mentioned by the user are in ${userTimeZone} timezone unless they explicitly specify otherwise.
+TIMEZONE REQUIREMENTS:
+- You MUST use the user's timezone: ${userTimeZone}
+- All times mentioned by the user are in ${userTimeZone} timezone unless they explicitly specify otherwise
+- Always include the timezone in your tool calls
 
 Current date and time: ${new Date().toISOString()}
-User's timezone: ${userTimeZone}`
+User's timezone: ${userTimeZone}
+Day of week today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', timeZone: userTimeZone })}`
     };
 
     // Make request to OpenRouter
