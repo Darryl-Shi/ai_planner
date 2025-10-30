@@ -6,43 +6,35 @@ This guide covers deploying the AI Calendar Planner behind a reverse proxy manag
 
 The production Docker Compose stack is designed to work with a system-level reverse proxy:
 
-- **Frontend**: Exposes port 80 internally (not published to host)
+- **Frontend**: Exposes port 8080 (configurable) on host
 - **Backend**: Accessible only through frontend's nginx proxy
 - **Database**: Only accessible within Docker network
-- **Proxy Network**: External network shared with your reverse proxy
+- **Reverse Proxy**: Forwards HTTPS traffic to localhost:8080
 
 ## Architecture
 
 ```
-Internet
+Internet (HTTPS)
     ↓
-[Your Reverse Proxy] (port 80/443)
+[Your Reverse Proxy Manager] (Nginx Proxy Manager/Traefik/Caddy)
+    ↓ (SSL termination)
+http://localhost:8080
     ↓
-[proxy network]
+[AI Planner Frontend Container] :80
+    ↓ (proxies /api/* internally)
+[AI Planner Backend Container] :3001
     ↓
-[AI Planner Frontend] (internal port 80)
-    ↓ (proxies /api/*)
-[AI Planner Backend] (internal port 3001)
-    ↓
-[PostgreSQL] (internal port 5432)
+[PostgreSQL Container] :5432
 ```
 
 ## Prerequisites
 
 1. **Domain name** pointing to your server
 2. **Reverse proxy** already running (Nginx Proxy Manager, Traefik, Caddy, etc.)
-3. **Docker network** for the proxy (e.g., `proxy` or `traefik`)
 
 ## Option 1: Nginx Proxy Manager (Recommended)
 
-### Step 1: Create Proxy Network
-
-```bash
-# Create the external network (if not already exists)
-docker network create proxy
-```
-
-### Step 2: Configure Environment
+### Step 1: Configure Environment
 
 ```bash
 # Create production environment file
@@ -54,7 +46,7 @@ nano .env.prod
 
 Set these variables:
 ```bash
-DOMAIN=calendar.yourdomain.com
+FRONTEND_PORT=8080  # Port to expose (can be any available port)
 POSTGRES_PASSWORD=your_secure_password
 ENCRYPTION_KEY=$(openssl rand -hex 32)
 SESSION_SECRET=$(openssl rand -hex 32)
@@ -63,7 +55,7 @@ GOOGLE_REDIRECT_URI=https://calendar.yourdomain.com/api/auth/callback
 # ... other values
 ```
 
-### Step 3: Start the Stack
+### Step 2: Start the Stack
 
 ```bash
 # Start in detached mode
@@ -73,15 +65,15 @@ docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
 docker-compose -f docker-compose.prod.yml ps
 ```
 
-### Step 4: Configure Nginx Proxy Manager
+### Step 3: Configure Nginx Proxy Manager
 
 1. **Login to NPM** (usually at http://your-server:81)
 
 2. **Add Proxy Host**:
    - **Domain Names**: `calendar.yourdomain.com`
    - **Scheme**: `http`
-   - **Forward Hostname / IP**: `ai-planner-frontend-prod`
-   - **Forward Port**: `80`
+   - **Forward Hostname / IP**: `localhost` (or your server's IP)
+   - **Forward Port**: `8080` (or whatever you set FRONTEND_PORT to)
    - **Cache Assets**: ✅ (enabled)
    - **Block Common Exploits**: ✅ (enabled)
    - **Websockets Support**: ✅ (enabled)
@@ -95,7 +87,7 @@ docker-compose -f docker-compose.prod.yml ps
 
 4. **Save**
 
-### Step 5: Verify
+### Step 4: Verify
 
 ```bash
 # Check logs
@@ -109,67 +101,55 @@ curl -I https://calendar.yourdomain.com
 
 ## Option 2: Traefik
 
-### Step 1: Create Traefik Network
+### Step 1: Configure Environment
 
-```bash
-# Create the external network
-docker network create traefik
-```
+Same as Nginx Proxy Manager (see above), but ensure your Traefik has access to the host network or can reach `localhost:8080`.
 
-### Step 2: Update docker-compose.prod.yml
-
-Change the network name from `proxy` to `traefik`:
-
-```yaml
-networks:
-  ai-planner-network:
-    driver: bridge
-  traefik:
-    external: true
-```
-
-And update the frontend service:
-
-```yaml
-frontend:
-  # ... other config
-  networks:
-    - ai-planner-network
-    - traefik  # Changed from 'proxy'
-```
-
-### Step 3: Configure Environment
-
-Same as Nginx Proxy Manager (see above).
-
-### Step 4: Start the Stack
+### Step 2: Start the Stack
 
 ```bash
 docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-### Step 5: Traefik Configuration
+### Step 3: Add Traefik Configuration
 
-The labels in `docker-compose.prod.yml` will automatically configure Traefik:
+Add this to your Traefik config (static or dynamic):
 
+**File Provider (traefik.yml or dynamic config):**
+```yaml
+http:
+  routers:
+    ai-planner:
+      rule: "Host(`calendar.yourdomain.com`)"
+      service: ai-planner
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    ai-planner:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:8080"
+```
+
+**Or use Labels** (if Traefik has access to Docker network):
+Add these labels to the frontend service in `docker-compose.prod.yml`:
 ```yaml
 labels:
   - "traefik.enable=true"
-  - "traefik.http.routers.ai-planner.rule=Host(`${DOMAIN}`)"
+  - "traefik.http.routers.ai-planner.rule=Host(`calendar.yourdomain.com`)"
   - "traefik.http.routers.ai-planner.entrypoints=websecure"
   - "traefik.http.routers.ai-planner.tls.certresolver=letsencrypt"
   - "traefik.http.services.ai-planner.loadbalancer.server.port=80"
 ```
 
-Make sure your Traefik is configured with Let's Encrypt.
-
 ## Option 3: Caddy
 
-### Step 1: Create Proxy Network
+### Step 1: Configure Environment & Start Stack
 
-```bash
-docker network create proxy
-```
+Same as Nginx Proxy Manager - configure `.env.prod` and start the stack.
 
 ### Step 2: Caddyfile Configuration
 
@@ -177,7 +157,7 @@ Add to your Caddyfile:
 
 ```caddyfile
 calendar.yourdomain.com {
-    reverse_proxy ai-planner-frontend-prod:80
+    reverse_proxy localhost:8080
 
     # Optional: Enable gzip
     encode gzip
@@ -195,33 +175,29 @@ calendar.yourdomain.com {
 
 ```bash
 docker exec -w /etc/caddy caddy caddy reload
+# Or if running as systemd service:
+sudo systemctl reload caddy
 ```
 
 ## Common Issues & Solutions
-
-### Issue: "network proxy not found"
-
-**Solution**: Create the network first
-```bash
-docker network create proxy
-# or
-docker network create traefik
-```
 
 ### Issue: 502 Bad Gateway
 
 **Causes**:
 1. Frontend container not running
-2. Frontend not on the proxy network
-3. Wrong container name
+2. Wrong port in reverse proxy config
+3. Port not exposed on host
 
 **Solution**:
 ```bash
 # Check container is running
 docker ps | grep ai-planner-frontend
 
-# Check networks
-docker network inspect proxy
+# Check if port is exposed
+docker port ai-planner-frontend-prod
+
+# Verify with curl
+curl -I http://localhost:8080
 
 # Restart the stack
 docker-compose -f docker-compose.prod.yml restart frontend
@@ -455,22 +431,22 @@ docker-compose -f docker-compose.prod.yml up -d
 ## Example: Complete Setup with Nginx Proxy Manager
 
 ```bash
-# 1. Create network
-docker network create proxy
-
-# 2. Configure environment
+# 1. Configure environment
 cp .env.prod.example .env.prod
-nano .env.prod  # Edit with your values
+nano .env.prod  # Set FRONTEND_PORT=8080 and other values
 
-# 3. Start the stack
+# 2. Start the stack
 docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
-# 4. Check status
+# 3. Check status
 docker-compose -f docker-compose.prod.yml ps
 
-# 5. Configure NPM (via web UI)
+# 4. Verify port is exposed
+curl -I http://localhost:8080
+
+# 5. Configure NPM (via web UI at http://your-server:81)
 # - Domain: calendar.yourdomain.com
-# - Forward to: ai-planner-frontend-prod:80
+# - Forward to: localhost:8080
 # - Enable SSL with Let's Encrypt
 
 # 6. Verify
