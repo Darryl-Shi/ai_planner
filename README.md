@@ -286,19 +286,31 @@ ai_planner_claude/
 
 ## Deployment
 
-### Docker Production Deployment
+### Docker Production Deployment (with Reverse Proxy)
+
+**Recommended**: Production deployment works with a reverse proxy manager like Nginx Proxy Manager or Traefik.
 
 ```bash
-# 1. Create production environment file
-cp .env.docker .env.prod
-# Edit with production values
+# 1. Create proxy network
+docker network create proxy
 
-# 2. Build and start
+# 2. Create production environment file
+cp .env.prod.example .env.prod
+# Edit with your domain and production values
+
+# 3. Start the stack
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
-# 3. Check status
-docker compose -f docker-compose.prod.yml ps
+# 4. Configure your reverse proxy
+# Point calendar.yourdomain.com → ai-planner-frontend-prod:80
 ```
+
+**Complete Guide**: See [REVERSE-PROXY.md](./REVERSE-PROXY.md) for:
+- Nginx Proxy Manager setup
+- Traefik configuration
+- Caddy setup
+- SSL/HTTPS configuration
+- Troubleshooting
 
 ### Cloud Deployment
 

@@ -272,6 +272,34 @@ SELECT * FROM users;
 
 ## Production Deployment with Docker
 
+**IMPORTANT**: The production setup is designed to work with a reverse proxy manager (Nginx Proxy Manager, Traefik, Caddy, etc.). See [REVERSE-PROXY.md](./REVERSE-PROXY.md) for detailed setup instructions.
+
+### Production Architecture
+
+```
+Internet → [Reverse Proxy] → [AI Planner Frontend] → [Backend] → [PostgreSQL]
+                ↓                     ↓
+            SSL/HTTPS            Internal Network
+```
+
+**Quick Production Setup**:
+
+```bash
+# 1. Create proxy network
+docker network create proxy
+
+# 2. Configure environment
+cp .env.prod.example .env.prod
+nano .env.prod  # Set DOMAIN, passwords, API keys
+
+# 3. Start the stack
+docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+# 4. Configure your reverse proxy to point to ai-planner-frontend-prod:80
+```
+
+See [REVERSE-PROXY.md](./REVERSE-PROXY.md) for complete instructions with Nginx Proxy Manager, Traefik, and Caddy.
+
 ### 1. Create Production Dockerfile
 
 For production, create optimized Dockerfiles:
