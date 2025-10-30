@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { format, parseISO, addDays, isSameDay, isToday, startOfDay, endOfDay } from 'date-fns';
 import './AgendaView.css';
 
@@ -7,14 +7,15 @@ function AgendaView({ events, currentDate, onDateChange }) {
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
 
-  // Generate 30 days centered around current date (15 before, current, 14 after)
+  // Generate 30 days starting from today
   const dateRange = useMemo(() => {
     const days = [];
-    for (let i = -15; i <= 14; i++) {
-      days.push(addDays(currentDate, i));
+    const today = new Date();
+    for (let i = 0; i < 30; i++) {
+      days.push(addDays(today, i));
     }
     return days;
-  }, [currentDate]);
+  }, []);
 
   // Group events by date
   const eventsByDate = useMemo(() => {
@@ -82,14 +83,6 @@ function AgendaView({ events, currentDate, onDateChange }) {
       }
     }
   };
-
-  // Scroll to current date on mount
-  useEffect(() => {
-    const currentDayElement = document.getElementById(`agenda-day-${currentDate.toISOString()}`);
-    if (currentDayElement) {
-      currentDayElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, []);
 
   return (
     <div
