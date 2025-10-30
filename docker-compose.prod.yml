@@ -42,7 +42,14 @@ services:
       FRONTEND_URL: ${FRONTEND_URL}
 
       # Database
-      DATABASE_URL: postgresql://ai_planner:${POSTGRES_PASSWORD}@postgres:5432/ai_planner
+      # Prefer discrete PG settings to avoid URL-encoding issues with special chars in passwords
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ai_planner
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ai_planner
+      # DATABASE_URL remains supported if you prefer URI format
+      # DATABASE_URL: postgresql://ai_planner:${POSTGRES_PASSWORD}@postgres:5432/ai_planner
 
       # Security
       SESSION_SECRET: ${SESSION_SECRET}

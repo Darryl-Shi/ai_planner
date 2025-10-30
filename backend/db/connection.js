@@ -1,13 +1,33 @@
 import pg from 'pg';
 const { Pool } = pg;
 
+// Determine pool configuration. Prefer discrete PG* env vars to avoid URL encoding issues
+// with special characters in passwords. Fallback to DATABASE_URL if provided.
+const buildPoolConfig = () => {
+  const hasDiscrete = process.env.PGHOST || process.env.PGUSER || process.env.PGPASSWORD || process.env.PGDATABASE;
+  if (hasDiscrete && !process.env.DATABASE_URL) {
+    return {
+      host: process.env.PGHOST || 'localhost',
+      port: parseInt(process.env.PGPORT || '5432', 10),
+      user: process.env.PGUSER || 'ai_planner',
+      password: process.env.PGPASSWORD,
+      database: process.env.PGDATABASE || 'ai_planner',
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000
+    };
+  }
+
+  return {
+    connectionString: process.env.DATABASE_URL,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000
+  };
+};
+
 // Create PostgreSQL connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 20, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
-});
+const pool = new Pool(buildPoolConfig());
 
 // Test connection on startup
 pool.on('connect', () => {

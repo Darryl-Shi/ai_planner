@@ -58,8 +58,9 @@ function App() {
 
   const handleLogin = async () => {
     try {
-      const response = await fetch(`${API_BASE}/auth/google`, {
-        credentials: 'include'
+      const response = await fetch(`${API_BASE}/auth/google?ts=${Date.now()}`, {
+        credentials: 'include',
+        cache: 'no-store'
       });
       const data = await response.json();
       window.location.href = data.authUrl;

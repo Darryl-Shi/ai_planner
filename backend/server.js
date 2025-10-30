@@ -664,3 +664,14 @@ User's timezone: ${userTimeZone}`
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Lightweight runtime health/config endpoint (no secrets)
+app.get('/api/health/runtime', (req, res) => {
+  res.json({
+    frontendUrl: process.env.FRONTEND_URL || null,
+    googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || null,
+    nodeEnv: process.env.NODE_ENV || null,
+    trustProxy: app.get('trust proxy') || false,
+    time: new Date().toISOString()
+  });
+});
