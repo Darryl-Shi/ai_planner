@@ -55,10 +55,18 @@ app.use(session({
 // using each user's personal API key from the database
 
 // Initialize Google OAuth2 client
+// Note: The redirect URI will be set dynamically based on web/mobile context
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/auth/callback'
+);
+
+// Mobile OAuth client with app-specific redirect
+const oauth2ClientMobile = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI_MOBILE || 'http://localhost:3001/api/auth/callback/mobile'
 );
 
 // Google OAuth scopes
@@ -76,9 +84,14 @@ const SCOPES = [
 app.get('/api/auth/google', (req, res) => {
   // Create CSRF state and store in session
   const state = crypto.randomBytes(16).toString('hex');
-  req.session.oauthState = state;
+  const isMobile = req.query.mobile === 'true';
 
-  const authUrl = oauth2Client.generateAuthUrl({
+  req.session.oauthState = state;
+  req.session.isMobileAuth = isMobile;
+
+  // Use mobile OAuth client if request is from mobile app
+  const client = isMobile ? oauth2ClientMobile : oauth2Client;
+  const authUrl = client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent',
@@ -171,6 +184,90 @@ app.get('/api/auth/callback', async (req, res) => {
     };
     console.error('Error during OAuth callback:', details);
     res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+// Mobile OAuth callback - handles OAuth redirect for mobile app
+app.get('/api/auth/callback/mobile', async (req, res) => {
+  const { code, state } = req.query;
+
+  // Verify CSRF state if present
+  if (req.session.oauthState && state !== req.session.oauthState) {
+    console.error('OAuth callback state mismatch (mobile)');
+    return res.status(400).send('<html><body><h1>Authentication Error</h1><p>Invalid state parameter</p></body></html>');
+  }
+  // Clear state
+  req.session.oauthState = undefined;
+  req.session.isMobileAuth = undefined;
+
+  try {
+    const { tokens } = await oauth2ClientMobile.getToken(code);
+    if (!tokens) {
+      console.error('OAuth callback (mobile): getToken returned no tokens');
+      return res.status(500).send('<html><body><h1>Authentication Error</h1><p>Failed to obtain tokens</p></body></html>');
+    }
+    console.log('OAuth tokens received (mobile)', {
+      hasAccessToken: !!tokens.access_token,
+      hasIdToken: !!tokens.id_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      scope: tokens.scope
+    });
+    oauth2ClientMobile.setCredentials(tokens);
+
+    // Try to obtain profile from ID token (preferred)
+    let googleId;
+    let email;
+    let name;
+
+    if (tokens.id_token) {
+      try {
+        const ticket = await oauth2ClientMobile.verifyIdToken({
+          idToken: tokens.id_token,
+          audience: process.env.GOOGLE_CLIENT_ID
+        });
+        const payload = ticket.getPayload();
+        googleId = payload?.sub;
+        email = payload?.email;
+        name = payload?.name || payload?.given_name || '';
+      } catch (verifyErr) {
+        console.warn('Failed to verify ID token (mobile), falling back to userinfo:', verifyErr?.message);
+      }
+    }
+
+    // Fallback to userinfo endpoint if needed
+    if (!googleId || !email) {
+      const oauth2 = google.oauth2({ version: 'v2', auth: oauth2ClientMobile });
+      const userInfo = await oauth2.userinfo.get();
+      googleId = userInfo.data?.id;
+      email = userInfo.data?.email;
+      name = userInfo.data?.name;
+    }
+
+    if (!googleId || !email) {
+      console.error('Failed to retrieve user identity from Google (mobile)');
+      return res.status(500).send('<html><body><h1>Authentication Error</h1><p>Failed to retrieve user identity</p></body></html>');
+    }
+
+    // Find or create user in database
+    const user = await findOrCreateUser(googleId, email, name);
+    console.log('User authenticated (mobile):', user.email);
+
+    // Store tokens and user ID in session
+    req.session.tokens = tokens;
+    req.session.userId = user.id;
+
+    // Redirect back to mobile app using custom URL scheme
+    // The app will detect it's coming back from auth and reload the app state
+    res.redirect('com.aiplanner.app://oauth-callback?success=true');
+  } catch (error) {
+    // Log detailed error info for diagnosis
+    const details = {
+      message: error?.message,
+      code: error?.code,
+      responseData: error?.response?.data,
+    };
+    console.error('Error during OAuth callback (mobile):', details);
+    res.redirect('com.aiplanner.app://oauth-callback?success=false&error=' + encodeURIComponent(error?.message || 'Authentication failed'));
   }
 });
 

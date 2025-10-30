@@ -6,9 +6,13 @@ import CalendarToolbar from './components/CalendarToolbar';
 import ChatSidebar from './components/ChatSidebar';
 import Settings from './components/Settings';
 import AgendaView from './components/AgendaView';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
+import { App as CapApp } from '@capacitor/app';
 import './App.css';
 
 const API_BASE = '/api';
+const IS_CAPACITOR = Capacitor.isNativePlatform();
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -31,6 +35,35 @@ function App() {
   // Check authentication status on mount
   useEffect(() => {
     checkAuthStatus();
+  }, []);
+
+  // Listen for deep link callbacks from OAuth (Capacitor only)
+  useEffect(() => {
+    if (IS_CAPACITOR) {
+      const listener = CapApp.addListener('appUrlOpen', (event) => {
+        const url = event.url;
+        console.log('App opened with URL:', url);
+
+        // Check if this is an OAuth callback
+        if (url.startsWith('com.aiplanner.app://oauth-callback')) {
+          const urlParams = new URLSearchParams(url.split('?')[1]);
+          const success = urlParams.get('success');
+
+          if (success === 'true') {
+            console.log('OAuth success - checking auth status');
+            checkAuthStatus();
+          } else {
+            const error = urlParams.get('error');
+            console.error('OAuth error:', error);
+            alert('Authentication failed: ' + (error || 'Unknown error'));
+          }
+        }
+      });
+
+      return () => {
+        listener.remove();
+      };
+    }
   }, []);
 
   // Handle window resize for mobile detection
@@ -74,12 +107,21 @@ function App() {
 
   const handleLogin = async () => {
     try {
-      const response = await fetch(`${API_BASE}/auth/google?ts=${Date.now()}`, {
+      // Add mobile=true parameter if running in Capacitor
+      const mobileParam = IS_CAPACITOR ? '&mobile=true' : '';
+      const response = await fetch(`${API_BASE}/auth/google?ts=${Date.now()}${mobileParam}`, {
         credentials: 'include',
         cache: 'no-store'
       });
       const data = await response.json();
-      window.location.href = data.authUrl;
+
+      if (IS_CAPACITOR) {
+        // Open OAuth URL in system browser for mobile
+        await Browser.open({ url: data.authUrl });
+      } else {
+        // Standard web redirect
+        window.location.href = data.authUrl;
+      }
     } catch (error) {
       console.error('Error initiating login:', error);
     }
