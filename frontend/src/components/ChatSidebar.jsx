@@ -8,7 +8,9 @@ function ChatSidebar({
   isSending,
   onSendMessage,
   onInputChange,
-  onNewChat
+  onNewChat,
+  isMobile = false,
+  isVisible = true
 }) {
   const messagesEndRef = useRef(null);
 
@@ -17,7 +19,7 @@ function ChatSidebar({
   }, [messages]);
 
   return (
-    <div className="chat-sidebar">
+    <div className={`chat-sidebar ${isMobile ? 'mobile' : ''} ${!isVisible ? 'hidden' : ''}`}>
       <div className="chat-header">
         <h2>AI Assistant</h2>
         <button

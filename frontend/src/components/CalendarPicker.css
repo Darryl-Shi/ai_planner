@@ -57,3 +57,54 @@
   color: var(--accent);
   flex-shrink: 0;
 }
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .calendar-picker {
+    padding: 20px 16px;
+    /* Add safe area for mobile notches */
+    padding-top: max(20px, env(safe-area-inset-top));
+  }
+
+  .calendar-picker-label {
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+
+  .calendar-list {
+    gap: 6px;
+  }
+
+  .calendar-item {
+    padding: 12px 14px;
+    min-height: 48px; /* Touch-friendly target */
+  }
+
+  .calendar-color-indicator {
+    width: 14px;
+    height: 14px;
+  }
+
+  .calendar-name {
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  .calendar-picker {
+    padding: 16px 12px;
+  }
+
+  .calendar-picker-label {
+    font-size: 11px;
+  }
+
+  .calendar-item {
+    padding: 10px 12px;
+    min-height: 44px;
+  }
+
+  .calendar-name {
+    font-size: 14px;
+  }
+}

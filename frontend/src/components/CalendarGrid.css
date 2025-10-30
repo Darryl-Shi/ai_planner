@@ -304,3 +304,144 @@
 .month-event-more:hover {
   color: var(--accent);
 }
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  /* Day view adjustments */
+  .calendar-header {
+    grid-template-columns: 50px 1fr;
+  }
+
+  .time-column {
+    width: 50px;
+  }
+
+  .time-slot {
+    height: 60px;
+    padding: 4px 6px 0 0;
+  }
+
+  .time-label {
+    font-size: 9px;
+  }
+
+  .days-grid {
+    grid-template-columns: 1fr; /* Single day view on mobile */
+  }
+
+  .day-header {
+    padding: 10px 6px;
+  }
+
+  .day-name {
+    font-size: 10px;
+  }
+
+  .day-number {
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Touch-friendly event targets */
+  .calendar-event {
+    min-height: 44px;
+    padding: 8px;
+  }
+
+  .event-time-label {
+    font-size: 12px;
+  }
+
+  .event-title-label {
+    font-size: 14px;
+  }
+
+  /* Month view adjustments */
+  .month-day-name {
+    padding: 8px 4px;
+    font-size: 10px;
+  }
+
+  .month-day {
+    min-height: 70px;
+    padding: 6px;
+  }
+
+  .month-day-number {
+    font-size: 11px;
+  }
+
+  .month-event {
+    font-size: 10px;
+    padding: 3px 4px;
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+  }
+
+  .month-event-more {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .time-column {
+    width: 44px;
+  }
+
+  .calendar-header {
+    grid-template-columns: 44px 1fr;
+  }
+
+  .time-slot {
+    padding: 4px 4px 0 0;
+  }
+
+  .time-label {
+    font-size: 8px;
+  }
+
+  .day-name {
+    font-size: 9px;
+  }
+
+  .day-number {
+    font-size: 18px;
+    width: 32px;
+    height: 32px;
+  }
+
+  .calendar-event {
+    padding: 6px;
+  }
+
+  .event-time-label {
+    font-size: 11px;
+  }
+
+  .event-title-label {
+    font-size: 13px;
+  }
+
+  /* Month view for very small screens */
+  .month-day {
+    min-height: 60px;
+    padding: 4px;
+  }
+
+  .month-day-number {
+    font-size: 10px;
+  }
+
+  .month-day.today .month-day-number {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+  }
+
+  .month-event {
+    font-size: 9px;
+    padding: 2px 3px;
+  }
+}

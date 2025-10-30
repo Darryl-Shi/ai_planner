@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, LogOut, Loader2, Settings as SettingsIcon } from 'lucide-react';
+import { Calendar, LogOut, Loader2, Settings as SettingsIcon, Menu, X, MessageSquare, CalendarDays } from 'lucide-react';
 import CalendarPicker from './components/CalendarPicker';
 import CalendarGrid from './components/CalendarGrid';
 import CalendarToolbar from './components/CalendarToolbar';
 import ChatSidebar from './components/ChatSidebar';
 import Settings from './components/Settings';
+import AgendaView from './components/AgendaView';
 import './App.css';
 
 const API_BASE = '/api';
@@ -22,9 +23,24 @@ function App() {
   const [view, setView] = useState('week');
   const [showSettings, setShowSettings] = useState(false);
 
+  // Mobile-specific state
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [activeTab, setActiveTab] = useState('chat'); // 'calendar' or 'chat'
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   // Check authentication status on mount
   useEffect(() => {
     checkAuthStatus();
+  }, []);
+
+  // Handle window resize for mobile detection
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // Fetch calendars and events when authenticated
@@ -206,6 +222,15 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="header-content">
+          {isMobile && (
+            <button
+              onClick={() => setDrawerOpen(!drawerOpen)}
+              className="hamburger-button"
+              aria-label="Toggle calendar picker"
+            >
+              {drawerOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          )}
           <div className="header-title">
             <Calendar size={24} />
             <h1>AI Calendar Assistant</h1>
@@ -213,39 +238,62 @@ function App() {
           <div className="header-actions">
             <button onClick={() => setShowSettings(true)} className="settings-button">
               <SettingsIcon size={18} />
-              Settings
+              {!isMobile && <span>Settings</span>}
             </button>
             <button onClick={handleLogout} className="logout-button">
               <LogOut size={18} />
-              Logout
+              {!isMobile && <span>Logout</span>}
             </button>
           </div>
         </div>
       </header>
 
       <div className="main-layout">
-        <aside className="sidebar">
+        {/* Calendar Picker - Sidebar on desktop, Drawer on mobile */}
+        <aside className={`sidebar ${drawerOpen ? 'drawer-open' : ''}`}>
           <CalendarPicker
             calendars={calendars}
             selectedCalendarId={selectedCalendarId}
-            onSelectCalendar={setSelectedCalendarId}
+            onSelectCalendar={(id) => {
+              setSelectedCalendarId(id);
+              if (isMobile) setDrawerOpen(false); // Close drawer after selection on mobile
+            }}
           />
         </aside>
 
-        <div className="calendar-section">
+        {/* Drawer overlay for mobile */}
+        {isMobile && drawerOpen && (
+          <div
+            className="drawer-overlay"
+            onClick={() => setDrawerOpen(false)}
+          />
+        )}
+
+        {/* Calendar Section - Hidden on mobile when chat tab is active */}
+        <div className={`calendar-section ${isMobile && activeTab !== 'calendar' ? 'mobile-hidden' : ''}`}>
           <CalendarToolbar
             currentDate={currentDate}
             view={view}
             onDateChange={setCurrentDate}
             onViewChange={setView}
+            isMobile={isMobile}
           />
-          <CalendarGrid
-            events={events}
-            currentDate={currentDate}
-            view={view}
-          />
+          {isMobile ? (
+            <AgendaView
+              events={events}
+              currentDate={currentDate}
+              onDateChange={setCurrentDate}
+            />
+          ) : (
+            <CalendarGrid
+              events={events}
+              currentDate={currentDate}
+              view={view}
+            />
+          )}
         </div>
 
+        {/* Chat Sidebar - Hidden on mobile when calendar tab is active */}
         <ChatSidebar
           messages={messages}
           inputMessage={inputMessage}
@@ -253,8 +301,30 @@ function App() {
           onSendMessage={handleSendMessage}
           onInputChange={(e) => setInputMessage(e.target.value)}
           onNewChat={handleNewChat}
+          isMobile={isMobile}
+          isVisible={!isMobile || activeTab === 'chat'}
         />
       </div>
+
+      {/* Mobile Tab Navigation */}
+      {isMobile && (
+        <nav className="mobile-tabs">
+          <button
+            className={`tab-button ${activeTab === 'calendar' ? 'active' : ''}`}
+            onClick={() => setActiveTab('calendar')}
+          >
+            <CalendarDays size={24} />
+            <span>Calendar</span>
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveTab('chat')}
+          >
+            <MessageSquare size={24} />
+            <span>Chat</span>
+          </button>
+        </nav>
+      )}
 
       <Settings
         isOpen={showSettings}
