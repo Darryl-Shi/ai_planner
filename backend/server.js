@@ -18,6 +18,8 @@ if (!validateEncryptionKey()) {
 }
 
 const app = express();
+// If running behind a reverse proxy (nginx/traefik), trust it so secure cookies work
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
 // Middleware
@@ -39,7 +41,9 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // Set to true if using HTTPS
+    // Use secure cookies automatically when connection is HTTPS (behind proxy)
+    secure: 'auto',
+    sameSite: 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
   }
 }));
@@ -54,8 +58,14 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/auth/callback'
 );
 
-// Google Calendar scopes
-const SCOPES = ['https://www.googleapis.com/auth/calendar'];
+// Google OAuth scopes
+// Include userinfo scopes since we call oauth2.userinfo.get() to fetch profile
+const SCOPES = [
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'openid'
+];
 
 // ==================== AUTH ROUTES ====================
 
@@ -94,7 +104,13 @@ app.get('/api/auth/callback', async (req, res) => {
     // Redirect to frontend
     res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
   } catch (error) {
-    console.error('Error during OAuth callback:', error);
+    // Log detailed error info for diagnosis
+    const details = {
+      message: error?.message,
+      code: error?.code,
+      responseData: error?.response?.data,
+    };
+    console.error('Error during OAuth callback:', details);
     res.status(500).json({ error: 'Authentication failed' });
   }
 });
