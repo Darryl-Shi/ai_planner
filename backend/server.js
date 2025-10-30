@@ -74,7 +74,8 @@ app.get('/api/auth/google', (req, res) => {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
-    prompt: 'consent'
+    prompt: 'consent',
+    include_granted_scopes: true
   });
   res.json({ authUrl });
 });
@@ -85,13 +86,45 @@ app.get('/api/auth/callback', async (req, res) => {
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
+    if (!tokens) {
+      console.error('OAuth callback: getToken returned no tokens');
+      return res.status(500).json({ error: 'Authentication failed' });
+    }
     oauth2Client.setCredentials(tokens);
 
-    // Get user info from Google
-    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-    const userInfo = await oauth2.userinfo.get();
+    // Try to obtain profile from ID token (preferred)
+    let googleId;
+    let email;
+    let name;
 
-    const { id: googleId, email, name } = userInfo.data;
+    if (tokens.id_token) {
+      try {
+        const ticket = await oauth2Client.verifyIdToken({
+          idToken: tokens.id_token,
+          audience: process.env.GOOGLE_CLIENT_ID
+        });
+        const payload = ticket.getPayload();
+        googleId = payload?.sub;
+        email = payload?.email;
+        name = payload?.name || payload?.given_name || '';
+      } catch (verifyErr) {
+        console.warn('Failed to verify ID token, falling back to userinfo:', verifyErr?.message);
+      }
+    }
+
+    // Fallback to userinfo endpoint if needed
+    if (!googleId || !email) {
+      const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+      const userInfo = await oauth2.userinfo.get();
+      googleId = userInfo.data?.id;
+      email = userInfo.data?.email;
+      name = userInfo.data?.name;
+    }
+
+    if (!googleId || !email) {
+      console.error('Failed to retrieve user identity from Google');
+      return res.status(500).json({ error: 'Authentication failed' });
+    }
 
     // Find or create user in database
     const user = await findOrCreateUser(googleId, email, name);
