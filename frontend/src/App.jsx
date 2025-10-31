@@ -12,6 +12,7 @@ const API_BASE = '/api';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [provider, setProvider] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [calendars, setCalendars] = useState([]);
   const [selectedCalendarId, setSelectedCalendarId] = useState('primary');
@@ -65,6 +66,7 @@ function App() {
       });
       const data = await response.json();
       setIsAuthenticated(data.isAuthenticated);
+      setProvider(data.provider);
     } catch (error) {
       console.error('Error checking auth status:', error);
     } finally {
@@ -72,9 +74,9 @@ function App() {
     }
   };
 
-  const handleLogin = async () => {
+  const handleLogin = async (provider) => {
     try {
-      const response = await fetch(`${API_BASE}/auth/google?ts=${Date.now()}`, {
+      const response = await fetch(`${API_BASE}/auth/${provider}?ts=${Date.now()}`, {
         credentials: 'include',
         cache: 'no-store'
       });
@@ -208,11 +210,17 @@ function App() {
         <div className="login-card">
           <Calendar size={64} className="login-icon" />
           <h1>AI Calendar Assistant</h1>
-          <p>Connect your Google Calendar and chat with your AI assistant to manage your schedule effortlessly.</p>
-          <button onClick={handleLogin} className="login-button">
-            <Calendar size={20} />
-            Connect Google Calendar
-          </button>
+          <p>Connect your calendar and chat with your AI assistant to manage your schedule effortlessly.</p>
+          <div className="login-buttons">
+            <button onClick={() => handleLogin('google')} className="login-button google-button">
+              <Calendar size={20} />
+              Connect Google Calendar
+            </button>
+            <button onClick={() => handleLogin('outlook')} className="login-button outlook-button">
+              <Calendar size={20} />
+              Connect Outlook Calendar
+            </button>
+          </div>
         </div>
       </div>
     );

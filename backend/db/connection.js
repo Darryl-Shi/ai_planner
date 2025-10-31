@@ -60,28 +60,31 @@ export const getClient = async () => {
 };
 
 // User-related database functions
-export const findOrCreateUser = async (googleId, email, name) => {
+export const findOrCreateUser = async (providerId, email, name, provider = 'google') => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
 
+    // Determine the ID column based on provider
+    const idColumn = provider === 'outlook' ? 'outlook_id' : 'google_id';
+
     // Try to find existing user
     let result = await client.query(
-      'SELECT * FROM users WHERE google_id = $1',
-      [googleId]
+      `SELECT * FROM users WHERE ${idColumn} = $1`,
+      [providerId]
     );
 
     if (result.rows.length > 0) {
       // User exists, update their info
       result = await client.query(
-        'UPDATE users SET email = $1, name = $2, updated_at = CURRENT_TIMESTAMP WHERE google_id = $3 RETURNING *',
-        [email, name, googleId]
+        `UPDATE users SET email = $1, name = $2, updated_at = CURRENT_TIMESTAMP WHERE ${idColumn} = $3 RETURNING *`,
+        [email, name, providerId]
       );
     } else {
       // Create new user
       result = await client.query(
-        'INSERT INTO users (google_id, email, name) VALUES ($1, $2, $3) RETURNING *',
-        [googleId, email, name]
+        `INSERT INTO users (${idColumn}, email, name, provider) VALUES ($1, $2, $3, $4) RETURNING *`,
+        [providerId, email, name, provider]
       );
 
       // Create empty user_settings record
@@ -99,6 +102,15 @@ export const findOrCreateUser = async (googleId, email, name) => {
   } finally {
     client.release();
   }
+};
+
+// Get user by ID
+export const getUserById = async (userId) => {
+  const result = await query(
+    'SELECT * FROM users WHERE id = $1',
+    [userId]
+  );
+  return result.rows[0] || null;
 };
 
 export const getUserSettings = async (userId) => {

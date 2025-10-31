@@ -4,10 +4,12 @@ import dotenv from 'dotenv';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import { google } from 'googleapis';
+import { ConfidentialClientApplication } from '@azure/msal-node';
 import OpenAI from 'openai';
 import crypto from 'crypto';
-import pool, { findOrCreateUser, getUserSettings, updateUserSettings, deleteUserApiKey } from './db/connection.js';
+import pool, { findOrCreateUser, getUserById, getUserSettings, updateUserSettings, deleteUserApiKey } from './db/connection.js';
 import { encryptApiKey, decryptApiKey, validateEncryptionKey } from './utils/encryption.js';
+import { ProviderFactory } from './providers/ProviderFactory.js';
 
 dotenv.config();
 
@@ -58,16 +60,34 @@ app.use(session({
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/auth/callback'
+  process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/auth/google/callback'
 );
 
 // Google OAuth scopes
 // Include userinfo scopes since we call oauth2.userinfo.get() to fetch profile
-const SCOPES = [
+const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
   'openid'
+];
+
+// Initialize Microsoft MSAL client for Outlook
+const msalConfig = {
+  auth: {
+    clientId: process.env.MICROSOFT_CLIENT_ID || '',
+    authority: `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID || 'common'}`,
+    clientSecret: process.env.MICROSOFT_CLIENT_SECRET || ''
+  }
+};
+
+const msalClient = new ConfidentialClientApplication(msalConfig);
+
+// Microsoft OAuth scopes
+const MICROSOFT_SCOPES = [
+  'Calendars.ReadWrite',
+  'User.Read',
+  'offline_access'
 ];
 
 // ==================== AUTH ROUTES ====================
@@ -77,10 +97,11 @@ app.get('/api/auth/google', (req, res) => {
   // Create CSRF state and store in session
   const state = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = state;
+  req.session.oauthProvider = 'google';
 
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: SCOPES,
+    scope: GOOGLE_SCOPES,
     prompt: 'consent',
     include_granted_scopes: true,
     state
@@ -92,25 +113,48 @@ app.get('/api/auth/google', (req, res) => {
   res.json({ authUrl });
 });
 
-// OAuth callback
-app.get('/api/auth/callback', async (req, res) => {
+// Initiate Outlook OAuth
+app.get('/api/auth/outlook', (req, res) => {
+  // Create CSRF state and store in session
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.oauthState = state;
+  req.session.oauthProvider = 'outlook';
+
+  const authUrl = msalClient.getAuthCodeUrl({
+    scopes: MICROSOFT_SCOPES,
+    redirectUri: process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3001/api/auth/outlook/callback',
+    state
+  });
+
+  // Prevent caching of this dynamic response
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  authUrl.then(url => res.json({ authUrl: url })).catch(err => {
+    console.error('Error generating Outlook auth URL:', err);
+    res.status(500).json({ error: 'Failed to generate auth URL' });
+  });
+});
+
+// Google OAuth callback
+app.get('/api/auth/google/callback', async (req, res) => {
   const { code, state } = req.query;
 
   // Verify CSRF state if present
   if (req.session.oauthState && state !== req.session.oauthState) {
-    console.error('OAuth callback state mismatch');
+    console.error('Google OAuth callback state mismatch');
     return res.status(400).json({ error: 'Invalid state parameter' });
   }
   // Clear state
   req.session.oauthState = undefined;
+  req.session.oauthProvider = undefined;
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
     if (!tokens) {
-      console.error('OAuth callback: getToken returned no tokens');
+      console.error('Google OAuth callback: getToken returned no tokens');
       return res.status(500).json({ error: 'Authentication failed' });
     }
-    console.log('OAuth tokens received', {
+    console.log('Google OAuth tokens received', {
       hasAccessToken: !!tokens.access_token,
       hasIdToken: !!tokens.id_token,
       hasRefreshToken: !!tokens.refresh_token,
@@ -153,12 +197,13 @@ app.get('/api/auth/callback', async (req, res) => {
     }
 
     // Find or create user in database
-    const user = await findOrCreateUser(googleId, email, name);
+    const user = await findOrCreateUser(googleId, email, name, 'google');
     console.log('User authenticated:', user.email);
 
-    // Store tokens and user ID in session
+    // Store tokens, user ID, and provider in session
     req.session.tokens = tokens;
     req.session.userId = user.id;
+    req.session.provider = 'google';
 
     // Redirect to frontend
     res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
@@ -169,7 +214,80 @@ app.get('/api/auth/callback', async (req, res) => {
       code: error?.code,
       responseData: error?.response?.data,
     };
-    console.error('Error during OAuth callback:', details);
+    console.error('Error during Google OAuth callback:', details);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+// Outlook OAuth callback
+app.get('/api/auth/outlook/callback', async (req, res) => {
+  const { code, state } = req.query;
+
+  // Verify CSRF state if present
+  if (req.session.oauthState && state !== req.session.oauthState) {
+    console.error('Outlook OAuth callback state mismatch');
+    return res.status(400).json({ error: 'Invalid state parameter' });
+  }
+  // Clear state
+  req.session.oauthState = undefined;
+  req.session.oauthProvider = undefined;
+
+  try {
+    const tokenRequest = {
+      code,
+      scopes: MICROSOFT_SCOPES,
+      redirectUri: process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3001/api/auth/outlook/callback'
+    };
+
+    const response = await msalClient.acquireTokenByCode(tokenRequest);
+
+    if (!response || !response.accessToken) {
+      console.error('Outlook OAuth callback: acquireTokenByCode returned no tokens');
+      return res.status(500).json({ error: 'Authentication failed' });
+    }
+
+    console.log('Outlook OAuth tokens received', {
+      hasAccessToken: !!response.accessToken,
+      hasRefreshToken: !!response.refreshToken,
+      scopes: response.scopes
+    });
+
+    const tokens = {
+      access_token: response.accessToken,
+      refresh_token: response.refreshToken,
+      expires_at: response.expiresOn ? response.expiresOn.getTime() : Date.now() + 3600000,
+      token_type: 'Bearer'
+    };
+
+    // Get user profile from Microsoft Graph
+    const outlookId = response.account?.homeAccountId || response.uniqueId;
+    const email = response.account?.username;
+    const name = response.account?.name || email;
+
+    if (!outlookId || !email) {
+      console.error('Failed to retrieve user identity from Outlook');
+      return res.status(500).json({ error: 'Authentication failed' });
+    }
+
+    // Find or create user in database
+    const user = await findOrCreateUser(outlookId, email, name, 'outlook');
+    console.log('User authenticated:', user.email);
+
+    // Store tokens, user ID, and provider in session
+    req.session.tokens = tokens;
+    req.session.userId = user.id;
+    req.session.provider = 'outlook';
+
+    // Redirect to frontend
+    res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
+  } catch (error) {
+    // Log detailed error info for diagnosis
+    const details = {
+      message: error?.message,
+      errorCode: error?.errorCode,
+      errorMessage: error?.errorMessage
+    };
+    console.error('Error during Outlook OAuth callback:', details);
     res.status(500).json({ error: 'Authentication failed' });
   }
 });
@@ -177,7 +295,8 @@ app.get('/api/auth/callback', async (req, res) => {
 // Check auth status
 app.get('/api/auth/status', (req, res) => {
   const isAuthenticated = !!req.session.tokens;
-  res.json({ isAuthenticated });
+  const provider = req.session.provider || null;
+  res.json({ isAuthenticated, provider });
 });
 
 // Logout
@@ -188,13 +307,46 @@ app.post('/api/auth/logout', (req, res) => {
 
 // ==================== MIDDLEWARE ====================
 
-// Middleware to check authentication
-const requireAuth = (req, res, next) => {
-  if (!req.session.tokens) {
+// Middleware to check authentication and create provider instance
+const requireAuth = async (req, res, next) => {
+  if (!req.session.tokens || !req.session.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  oauth2Client.setCredentials(req.session.tokens);
-  next();
+
+  try {
+    // Get user from database to determine provider
+    const user = await getUserById(req.session.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const provider = req.session.provider || user.provider || 'google';
+
+    // Create calendar provider instance based on user's provider
+    const providerConfig = provider === 'outlook'
+      ? { msalClient }
+      : {
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/auth/google/callback'
+        };
+
+    req.calendarProvider = ProviderFactory.createProvider(
+      provider,
+      req.session.tokens,
+      providerConfig
+    );
+
+    // Also set Google OAuth client for backward compatibility
+    if (provider === 'google') {
+      oauth2Client.setCredentials(req.session.tokens);
+    }
+
+    next();
+  } catch (error) {
+    console.error('Error in requireAuth middleware:', error);
+    res.status(500).json({ error: 'Authentication error' });
+  }
 };
 
 // ==================== USER SETTINGS ROUTES ====================
@@ -293,11 +445,8 @@ app.delete('/api/user/settings/api-key', requireAuth, async (req, res) => {
 // Get list of calendars
 app.get('/api/calendar/list', requireAuth, async (req, res) => {
   try {
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
-    const response = await calendar.calendarList.list();
-
-    res.json({ calendars: response.data.items });
+    const calendars = await req.calendarProvider.listCalendars();
+    res.json({ calendars });
   } catch (error) {
     console.error('Error fetching calendars:', error);
     res.status(500).json({ error: 'Failed to fetch calendars' });
@@ -307,20 +456,16 @@ app.get('/api/calendar/list', requireAuth, async (req, res) => {
 // Get calendar events
 app.get('/api/calendar/events', requireAuth, async (req, res) => {
   try {
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
     const { timeMin, timeMax, maxResults, calendarId } = req.query;
 
-    const response = await calendar.events.list({
+    const events = await req.calendarProvider.getEvents({
       calendarId: calendarId || 'primary',
       timeMin: timeMin || new Date().toISOString(),
-      timeMax: timeMax,
-      maxResults: parseInt(maxResults) || 100,
-      singleEvents: true,
-      orderBy: 'startTime'
+      timeMax,
+      maxResults: parseInt(maxResults) || 100
     });
 
-    res.json({ events: response.data.items });
+    res.json({ events });
   } catch (error) {
     console.error('Error fetching events:', error);
     res.status(500).json({ error: 'Failed to fetch events' });
@@ -330,15 +475,14 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
 // Create calendar event
 app.post('/api/calendar/events', requireAuth, async (req, res) => {
   try {
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     const eventData = req.body;
 
-    const response = await calendar.events.insert({
+    const event = await req.calendarProvider.createEvent({
       calendarId: 'primary',
-      requestBody: eventData
+      event: eventData
     });
 
-    res.json({ event: response.data });
+    res.json({ event });
   } catch (error) {
     console.error('Error creating event:', error);
     res.status(500).json({ error: 'Failed to create event' });
@@ -348,17 +492,16 @@ app.post('/api/calendar/events', requireAuth, async (req, res) => {
 // Update calendar event
 app.patch('/api/calendar/events/:eventId', requireAuth, async (req, res) => {
   try {
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     const { eventId } = req.params;
     const eventData = req.body;
 
-    const response = await calendar.events.patch({
+    const event = await req.calendarProvider.updateEvent({
       calendarId: 'primary',
-      eventId: eventId,
-      requestBody: eventData
+      eventId,
+      event: eventData
     });
 
-    res.json({ event: response.data });
+    res.json({ event });
   } catch (error) {
     console.error('Error updating event:', error);
     res.status(500).json({ error: 'Failed to update event' });
@@ -368,12 +511,11 @@ app.patch('/api/calendar/events/:eventId', requireAuth, async (req, res) => {
 // Delete calendar event
 app.delete('/api/calendar/events/:eventId', requireAuth, async (req, res) => {
   try {
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     const { eventId } = req.params;
 
-    await calendar.events.delete({
+    await req.calendarProvider.deleteEvent({
       calendarId: 'primary',
-      eventId: eventId
+      eventId
     });
 
     res.json({ success: true });
