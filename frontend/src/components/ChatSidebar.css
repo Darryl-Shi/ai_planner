@@ -132,6 +132,7 @@
 
 .chat-input-form {
   display: flex;
+  align-items: flex-end;
   gap: 12px;
   padding: 16px 20px;
   border-top: 1px solid var(--border);
@@ -148,6 +149,12 @@
   font-size: 14px;
   outline: none;
   transition: all 0.2s ease;
+  resize: none;
+  overflow-y: auto;
+  min-height: 44px;
+  max-height: 150px;
+  font-family: inherit;
+  line-height: 1.5;
 }
 
 .chat-input:focus {
@@ -277,6 +284,7 @@
     padding: 12px 14px;
     font-size: 16px; /* Prevent zoom on iOS */
     min-height: 44px;
+    max-height: 120px;
   }
 
   .send-button {

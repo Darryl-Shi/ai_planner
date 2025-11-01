@@ -13,10 +13,31 @@ function ChatSidebar({
   isVisible = true
 }) {
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Scroll only within the messages container, not the entire viewport
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   }, [messages]);
+
+  // Auto-resize textarea as user types
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+    }
+  }, [inputMessage]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      onSendMessage(e);
+    }
+  };
 
   return (
     <div className={`chat-sidebar ${isMobile ? 'mobile' : ''} ${!isVisible ? 'hidden' : ''}`}>
@@ -32,7 +53,7 @@ function ChatSidebar({
         </button>
       </div>
 
-      <div className="messages-container">
+      <div className="messages-container" ref={messagesContainerRef}>
         {messages.length === 0 ? (
           <div className="welcome-message">
             <h3>Welcome to your AI Calendar Assistant!</h3>
@@ -58,13 +79,15 @@ function ChatSidebar({
       </div>
 
       <form onSubmit={onSendMessage} className="chat-input-form">
-        <input
-          type="text"
+        <textarea
+          ref={textareaRef}
           value={inputMessage}
           onChange={onInputChange}
-          placeholder="Ask your assistant anything..."
+          onKeyDown={handleKeyDown}
+          placeholder="Ask your assistant anything... (Shift+Enter for new line)"
           className="chat-input"
           disabled={isSending}
+          rows={1}
         />
         <button type="submit" className="send-button" disabled={isSending}>
           {isSending ? (
